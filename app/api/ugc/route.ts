@@ -1,29 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const RATE_LIMIT_WINDOW = 60_000; // 1 minute
-const MAX_REQUESTS = 10; // per window
-const requests = new Map<string, { count: number; resetAt: number }>();
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const entry = requests.get(ip);
-  if (!entry || now > entry.resetAt) {
-    requests.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
-    return false;
-  }
-  entry.count++;
-  return entry.count > MAX_REQUESTS;
-}
+const USER_PASSWORD = "alsjeblieft";
+const MAX_USER_REQUESTS = 2;
+const usageMap = new Map<string, number>();
 
 export async function POST(req: NextRequest) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
-  if (isRateLimited(ip)) {
-    return NextResponse.json(
-      { error: "Too many requests" },
-      { status: 429 }
-    );
-  }
-
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
   if (!webhookUrl) {
     return NextResponse.json(
@@ -32,21 +13,90 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  let body: Record<string, unknown>;
   try {
-    const body = await req.json();
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const action = body.action as string | undefined;
+  const password = body.password as string | undefined;
+
+  // Status checks don't require password (polling for job progress)
+  if (action === "status") {
+    return proxyToWebhook(webhookUrl, body);
+  }
+
+  // Password required for all other actions
+  if (!password) {
+    return NextResponse.json(
+      { error: "Password required" },
+      { status: 401 }
+    );
+  }
+
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const isAdmin = !!(adminPassword && password === adminPassword);
+  const isUser = password === USER_PASSWORD;
+
+  if (!isAdmin && !isUser) {
+    return NextResponse.json(
+      { error: "Wrong password" },
+      { status: 403 }
+    );
+  }
+
+  // Usage tracking for non-admin users on "start" actions
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
+
+  if (!isAdmin && action === "start") {
+    const used = usageMap.get(ip) ?? 0;
+    if (used >= MAX_USER_REQUESTS) {
+      return NextResponse.json(
+        {
+          error: `You have used all ${MAX_USER_REQUESTS} requests. No more requests available.`,
+          remaining: 0,
+        },
+        { status: 429 }
+      );
+    }
+    usageMap.set(ip, used + 1);
+  }
+
+  const remaining = isAdmin
+    ? -1
+    : MAX_USER_REQUESTS - (usageMap.get(ip) ?? 0);
+
+  const result = await proxyToWebhook(webhookUrl, body);
+  const resultBody = await result.json();
+
+  return NextResponse.json(
+    { ...resultBody, remaining, isAdmin },
+    { status: result.status }
+  );
+}
+
+async function proxyToWebhook(
+  webhookUrl: string,
+  body: Record<string, unknown>
+) {
+  try {
+    // Strip password before forwarding to n8n
+    const { password: _pw, ...forwardBody } = body;
     const res = await fetch(webhookUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-webhook-secret": process.env.N8N_WEBHOOK_SECRET ?? "",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(forwardBody),
     });
 
     const text = await res.text();
     const data = text ? JSON.parse(text) : {};
     return NextResponse.json(data, { status: res.status });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Failed to reach n8n webhook" },
       { status: 502 }

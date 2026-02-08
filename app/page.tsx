@@ -22,6 +22,9 @@ import {
   CheckCircle2,
   Loader2,
   Play,
+  Lock,
+  Shield,
+  AlertTriangle,
 } from "lucide-react";
 import type {
   JobInput,
@@ -46,6 +49,7 @@ import {
 /* ── helpers ─────────────────────────────────────────────── */
 
 const HISTORY_KEY = "ugc-job-history";
+const PASSWORD_KEY = "ugc-password";
 
 function loadHistory(): Job[] {
   if (typeof window === "undefined") return [];
@@ -292,6 +296,13 @@ function Confetti() {
 /* ── main page ───────────────────────────────────────────── */
 
 export default function Home() {
+  const [password, setPassword] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [authenticated, setAuthenticated] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [remaining, setRemaining] = useState(2);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
   const [form, setForm] = useState<JobInput>({
     product: "",
     productPhotoUrl: "",
@@ -322,6 +333,11 @@ export default function Home() {
   useEffect(() => {
     setStats(loadStats());
     setHistory(loadHistory());
+    const savedPw = localStorage.getItem(PASSWORD_KEY);
+    if (savedPw) {
+      setPassword(savedPw);
+      setAuthenticated(true);
+    }
   }, []);
 
   const promptScore = calculatePromptQuality({
@@ -409,6 +425,15 @@ export default function Home() {
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
+  /* password gate */
+  const handlePasswordSubmit = () => {
+    if (!passwordInput.trim()) return;
+    setPassword(passwordInput);
+    setAuthenticated(true);
+    setPasswordError(null);
+    localStorage.setItem(PASSWORD_KEY, passwordInput);
+  };
+
   /* form submit */
   const handleSubmit = async () => {
     if (!form.product.trim()) return;
@@ -416,13 +441,29 @@ export default function Home() {
     setJobState("submitting");
 
     try {
-      const res = await startJob(form);
+      const res = await startJob(form, password);
+      if (res.isAdmin) {
+        setIsAdmin(true);
+      }
+      if (typeof res.remaining === "number" && res.remaining >= 0) {
+        setRemaining(res.remaining);
+      }
       setCurrentJobId(res.jobId);
       setJobState("processing");
       startPolling(res.jobId, form, promptScore);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setJobState("failed");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      if (msg.includes("Wrong password")) {
+        setAuthenticated(false);
+        setPassword("");
+        setPasswordInput("");
+        localStorage.removeItem(PASSWORD_KEY);
+        setPasswordError("Wrong password. Please try again.");
+        setJobState("idle");
+      } else {
+        setError(msg);
+        setJobState("failed");
+      }
     }
   };
 
@@ -445,7 +486,8 @@ export default function Home() {
   const canSubmit =
     jobState === "idle" &&
     form.product.trim() !== "" &&
-    form.productPhotoUrl.trim() !== "";
+    form.productPhotoUrl.trim() !== "" &&
+    (isAdmin || remaining > 0);
 
   const stagger = {
     hidden: {},
@@ -455,6 +497,76 @@ export default function Home() {
     hidden: { opacity: 0, y: 16 },
     show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
   };
+
+  /* ── password gate ── */
+  if (!authenticated) {
+    return (
+      <>
+        <div className="scan-lines" />
+        <div className="min-h-screen bg-[#0A1628] text-slate-200 selection:bg-blue-500/30 flex items-center justify-center p-6">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="glass-card rounded-2xl p-8 w-full max-w-md space-y-6"
+          >
+            <div className="flex flex-col items-center text-center space-y-3">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center">
+                <Lock size={24} className="text-white" />
+              </div>
+              <h1 className="text-xl font-bold text-white tracking-tight">
+                UGC Ads Generator
+              </h1>
+              <p className="text-sm text-slate-400 leading-relaxed">
+                Enter the password to access the app.
+                <br />
+                <span className="text-slate-500 text-xs">
+                  You will receive <span className="text-blue-400 font-semibold">2 free requests</span> to generate ads.
+                </span>
+              </p>
+            </div>
+
+            {passwordError && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-2.5 flex items-center gap-2"
+              >
+                <AlertTriangle size={14} />
+                {passwordError}
+              </motion.div>
+            )}
+
+            <div className="space-y-3">
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handlePasswordSubmit()}
+                placeholder="Enter password..."
+                className="field w-full"
+                autoFocus
+              />
+              <motion.button
+                onClick={handlePasswordSubmit}
+                disabled={!passwordInput.trim()}
+                whileHover={passwordInput.trim() ? { scale: 1.01 } : {}}
+                whileTap={passwordInput.trim() ? { scale: 0.98 } : {}}
+                className={`w-full py-3.5 rounded-xl font-semibold text-sm tracking-wide transition-all duration-300 flex items-center justify-center gap-2 ${
+                  passwordInput.trim()
+                    ? "bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-[0_0_30px_rgba(59,130,246,0.25)] hover:shadow-[0_0_40px_rgba(59,130,246,0.35)] cursor-pointer"
+                    : "bg-slate-800 text-slate-500 cursor-not-allowed"
+                }`}
+              >
+                <Shield size={16} />
+                Unlock Access
+              </motion.button>
+            </div>
+          </motion.div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -494,6 +606,25 @@ export default function Home() {
                 />
                 {jobState === "processing" ? "Processing" : "Online"}
               </div>
+              <div className="h-4 w-px bg-slate-700/60" />
+              {!isAdmin && (
+                <div
+                  className={`text-xs font-mono px-2 py-1 rounded-md ${
+                    remaining === 0
+                      ? "bg-red-500/15 text-red-400"
+                      : remaining === 1
+                        ? "bg-amber-500/15 text-amber-400"
+                        : "bg-blue-500/10 text-blue-400"
+                  }`}
+                >
+                  {remaining}/{2} requests left
+                </div>
+              )}
+              {isAdmin && (
+                <div className="text-xs font-mono px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-400 flex items-center gap-1">
+                  <Shield size={10} /> Admin
+                </div>
+              )}
               <div className="h-4 w-px bg-slate-700/60" />
               <div className="text-xs font-mono text-slate-400">
                 LVL{" "}
@@ -637,6 +768,17 @@ export default function Home() {
                   </div>
 
                   <QualityBar score={promptScore} />
+
+                  {!isAdmin && remaining === 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 flex items-center gap-2"
+                    >
+                      <AlertTriangle size={14} />
+                      You have used all 2 requests. No more generations available.
+                    </motion.div>
+                  )}
 
                   {error && (
                     <motion.div
