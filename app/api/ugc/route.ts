@@ -47,6 +47,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Password validation only (no n8n call needed)
+  if (action === "validate") {
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
+    const remaining = isAdmin
+      ? -1
+      : MAX_USER_REQUESTS - (usageMap.get(ip) ?? 0);
+    return NextResponse.json({ valid: true, isAdmin, remaining });
+  }
+
   // Usage tracking for non-admin users on "start" actions
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
 

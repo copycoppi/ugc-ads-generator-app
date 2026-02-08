@@ -36,7 +36,7 @@ import type {
   ModelOption,
 } from "@/lib/types";
 import { MODELS } from "@/lib/types";
-import { startJob, checkStatus } from "@/lib/api";
+import { startJob, checkStatus, validatePassword } from "@/lib/api";
 import {
   getBadges,
   calculatePromptQuality,
@@ -335,8 +335,18 @@ export default function Home() {
     setHistory(loadHistory());
     const savedPw = localStorage.getItem(PASSWORD_KEY);
     if (savedPw) {
-      setPassword(savedPw);
-      setAuthenticated(true);
+      validatePassword(savedPw)
+        .then((res) => {
+          setPassword(savedPw);
+          setAuthenticated(true);
+          setIsAdmin(res.isAdmin);
+          if (typeof res.remaining === "number" && res.remaining >= 0) {
+            setRemaining(res.remaining);
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem(PASSWORD_KEY);
+        });
     }
   }, []);
 
@@ -426,12 +436,23 @@ export default function Home() {
   useEffect(() => () => stopPolling(), [stopPolling]);
 
   /* password gate */
-  const handlePasswordSubmit = () => {
+  const handlePasswordSubmit = async () => {
     if (!passwordInput.trim()) return;
-    setPassword(passwordInput);
-    setAuthenticated(true);
-    setPasswordError(null);
-    localStorage.setItem(PASSWORD_KEY, passwordInput);
+    try {
+      const res = await validatePassword(passwordInput);
+      setPassword(passwordInput);
+      setAuthenticated(true);
+      setPasswordError(null);
+      setIsAdmin(res.isAdmin);
+      if (typeof res.remaining === "number" && res.remaining >= 0) {
+        setRemaining(res.remaining);
+      }
+      localStorage.setItem(PASSWORD_KEY, passwordInput);
+    } catch (err) {
+      setPasswordError(
+        err instanceof Error ? err.message : "Invalid password"
+      );
+    }
   };
 
   /* form submit */

@@ -1,5 +1,20 @@
 import { JobInput, JobStartResponse, JobStatusResponse } from "./types";
 
+export async function validatePassword(
+  password: string
+): Promise<{ valid: boolean; isAdmin: boolean; remaining: number }> {
+  const res = await fetch("/api/ugc", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "validate", password }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Invalid password");
+  }
+  return res.json();
+}
+
 export async function startJob(
   input: JobInput,
   password: string
