@@ -1,4 +1,4 @@
-export type ModelId = "Veo 3.1" | "Nano + Veo 3.1" | "Sora 2";
+export type ModelId = "Nano + Veo 3.1" | "Sora 2";
 
 export interface ModelOption {
   id: ModelId;
@@ -71,14 +71,6 @@ export interface UserStats {
 }
 
 export const MODELS: ModelOption[] = [
-  {
-    id: "Veo 3.1",
-    name: "Veo 3.1",
-    description: "Direct text-to-video generation with Google Veo",
-    speed: "Fast",
-    quality: 4,
-    xpMultiplier: 1.0,
-  },
   {
     id: "Nano + Veo 3.1",
     name: "Nano + Veo",

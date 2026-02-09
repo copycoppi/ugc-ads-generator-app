@@ -309,7 +309,7 @@ export default function Home() {
     icp: "",
     productFeatures: "",
     videoSetting: "",
-    model: "Veo 3.1",
+    model: "Nano + Veo 3.1",
   });
   const [jobState, setJobState] = useState<JobState>("idle");
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
@@ -500,7 +500,7 @@ export default function Home() {
       icp: "",
       productFeatures: "",
       videoSetting: "",
-      model: "Veo 3.1",
+      model: "Nano + Veo 3.1",
     });
   };
 
